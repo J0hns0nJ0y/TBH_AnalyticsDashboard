@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.linear_model import LinearRegression
 import numpy as np
+from datetime import datetime
 
 # ---------------- SAFE DIVISION FUNCTION ---------------- #
 
@@ -389,8 +391,10 @@ if uploaded_file is not None:
 
         # ---------------- TABS ---------------- #
 
-        monthly_tab, ytd_tab = st.tabs([
+        monthly_tab, budget_tab, forecast_tab, ytd_tab = st.tabs([
             "Monthly Analytics",
+            "Budget & Planning",
+            "Forecast & Projections",
             "YTD Analytics"
         ])
 
@@ -818,7 +822,7 @@ if uploaded_file is not None:
             )
 
             st.info("""
-            Interpretation:
+            Scatter Plot Interpretation:
 
             • Top Right = Excellent Channels
 
@@ -905,7 +909,249 @@ if uploaded_file is not None:
                 use_container_width=True
             )
 
+            # =====================================================
+            # SPEND EFFICIENCY HEATMAPS
+            # =====================================================
 
+            st.header("Spend Efficiency Analytics")
+
+            # =====================================================
+            # ROAS HEATMAP
+            # =====================================================
+
+            st.subheader("ROAS Performance Heatmap")
+
+            roas_heatmap = (
+                filtered_df.groupby(
+                    ["Month", "Channel"]
+                )
+                .agg({
+                    "Revenue Amount":"sum",
+                    "Amount Spent":"sum"
+                })
+                .reset_index()
+            )
+
+            roas_heatmap["ROAS AED"] = safe_divide(
+                roas_heatmap["Revenue Amount"],
+                roas_heatmap["Amount Spent"]
+            )
+
+            roas_pivot = roas_heatmap.pivot(
+                index="Month",
+                columns="Channel",
+                values="ROAS AED"
+            )
+
+            roas_pivot = roas_pivot.reindex(
+                month_order
+            )
+
+            fig_roas_heatmap = px.imshow(
+                roas_pivot,
+
+                text_auto=".1f",
+
+                aspect="auto",
+
+                title="ROAS by Month and Channel"
+            )
+
+            st.plotly_chart(
+                fig_roas_heatmap,
+                use_container_width=True
+            )
+
+            st.info("""
+            ROAS Heatmap:
+            Shows which channels generated the highest return on spend during each month.
+            """)
+
+            # =====================================================
+            # CLOSE RATE HEATMAP
+            # =====================================================
+
+            st.subheader("Conversion Efficiency Heatmap")
+
+            conversion_heatmap = (
+                filtered_df.groupby(
+                    ["Month", "Channel"]
+                )
+                .agg({
+                    "Leads":"sum",
+                    "Contracts":"sum"
+                })
+                .reset_index()
+            )
+
+            conversion_heatmap["Close Rate %"] = (
+                conversion_heatmap["Contracts"]
+                /
+                conversion_heatmap["Leads"]
+            ) * 100
+
+            conversion_pivot = conversion_heatmap.pivot(
+                index="Month",
+                columns="Channel",
+                values="Close Rate %"
+            )
+
+            conversion_pivot = conversion_pivot.reindex(
+                month_order
+            )
+
+            fig_conversion_heatmap = px.imshow(
+                conversion_pivot,
+
+                text_auto=".1f",
+
+                aspect="auto",
+
+                title="Close Rate % by Month and Channel"
+            )
+
+            st.plotly_chart(
+                fig_conversion_heatmap,
+                use_container_width=True
+            )
+
+            st.info("""
+            Conversion Heatmap:
+            Shows which channels converted leads into contracts most effectively.
+            """)
+
+            # =====================================================
+            # CHANNEL COMPARISON RADAR CHART
+            # =====================================================
+
+            st.header("Channel Comparison Dashboard")
+
+            radar_df = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Amount Spent":"sum",
+                    "Revenue Amount":"sum",
+                    "Leads":"sum",
+                    "Contracts":"sum"
+                })
+                .reset_index()
+            )
+
+            total_spend_all = radar_df["Amount Spent"].sum()
+            total_revenue_all = radar_df["Revenue Amount"].sum()
+
+            radar_df["ROAS"] = (
+                radar_df["Revenue Amount"]
+                /
+                radar_df["Amount Spent"]
+            )
+
+            radar_df["Spend %"] = (
+                radar_df["Amount Spent"]
+                /
+                total_spend_all
+            ) * 100
+
+            radar_df["Revenue %"] = (
+                radar_df["Revenue Amount"]
+                /
+                total_revenue_all
+            ) * 100
+
+            radar_df["Close Rate %"] = (
+                radar_df["Contracts"]
+                /
+                radar_df["Leads"]
+            ) * 100
+
+            lead_quality_lookup = (
+                filtered_df.groupby("Channel")
+                ["Lead Quality %"]
+                .mean()
+                .reset_index()
+            )
+
+            radar_df = radar_df.merge(
+                lead_quality_lookup,
+                on="Channel",
+                how="left"
+            )
+
+            max_roas = radar_df["ROAS"].max()
+
+            if max_roas > 0:
+                radar_df["ROAS Normalized"] = (
+                    radar_df["ROAS"]
+                    /
+                    max_roas
+                ) * 100
+            else:
+                radar_df["ROAS Normalized"] = 0
+
+            selected_radar_channels = st.multiselect(
+                "Select Channels for Radar Comparison",
+                options=radar_df["Channel"].unique(),
+                default=list(radar_df["Channel"].unique())[:5]
+            )
+
+            radar_filtered = radar_df[
+                radar_df["Channel"].isin(
+                    selected_radar_channels
+                )
+            ]
+
+            fig_radar = go.Figure()
+
+            for _, row in radar_filtered.iterrows():
+
+                fig_radar.add_trace(
+                    go.Scatterpolar(
+                        r=[
+                            row["ROAS Normalized"],
+                            row["Spend %"],
+                            row["Revenue %"],
+                            row["Lead Quality %"],
+                            row["Close Rate %"]
+                        ],
+
+                        theta=[
+                            "ROAS",
+                            "Spend %",
+                            "Revenue %",
+                            "Lead Quality %",
+                            "Close Rate %"
+                        ],
+
+                        fill="toself",
+
+                        name=row["Channel"]
+                    )
+                )
+
+            fig_radar.update_layout(
+
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0,100]
+                    )
+                ),
+
+                title="Multi-Metric Channel Comparison",
+
+                showlegend=True,
+
+                height=700
+            )
+
+            st.plotly_chart(
+                fig_radar,
+                use_container_width=True
+            )
+
+            st.info("""
+            Larger coverage indicates stronger overall performance.
+            """)
 
             # ---------------- ADVANCED BUSINESS INSIGHTS ---------------- #
 
@@ -1004,7 +1250,7 @@ if uploaded_file is not None:
 
             # ---------------- ADVANCED ANALYSIS TABLE ---------------- #
 
-            st.subheader("Advanced Channel Performance Analysis")
+            st.subheader("🇦🇩🇻🇦🇳🇨🇪🇩 🇨🇭🇦🇳🇳🇪🇱 🇵🇪🇷🇫🇴🇷🇲🇦🇳🇨🇪 🇦🇳🇦🇱🇾🇸🇮🇸")
 
             st.dataframe(
 
@@ -1198,6 +1444,161 @@ if uploaded_file is not None:
                 """
             )
 
+            # =====================================================
+            # CHANNEL CONVERSION JOURNEY
+            # =====================================================
+
+            st.subheader("Prospect-to-Contract Journey by Channel")
+
+            channel_funnel = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Prospects":"sum",
+                    "Leads":"sum",
+                    "Contracts":"sum"
+                })
+                .reset_index()
+            )
+
+            channel_funnel_melted = channel_funnel.melt(
+                id_vars="Channel",
+
+                value_vars=[
+                    "Prospects",
+                    "Leads",
+                    "Contracts"
+                ],
+
+                var_name="Stage",
+
+                value_name="Count"
+            )
+
+            fig_channel_funnel = px.bar(
+                channel_funnel_melted,
+
+                x="Channel",
+
+                y="Count",
+
+                color="Stage",
+
+                barmode="group",
+
+                title="Prospects → Leads → Contracts by Channel"
+            )
+
+            st.plotly_chart(
+                fig_channel_funnel,
+                use_container_width=True
+            )
+
+            st.subheader("Channel Leakage Analysis")
+            leakage_df = channel_funnel.copy()
+
+            leakage_df["Prospect-to-Lead Loss %"] = (
+                (
+                    leakage_df["Prospects"]
+                    -
+                    leakage_df["Leads"]
+                )
+                /
+                leakage_df["Prospects"]
+            ) * 100
+
+            leakage_df["Lead-to-Contract Loss %"] = (
+                (
+                    leakage_df["Leads"]
+                    -
+                    leakage_df["Contracts"]
+                )
+                /
+                leakage_df["Leads"]
+            ) * 100
+
+            leakage_melted = leakage_df.melt(
+                id_vars="Channel",
+
+                value_vars=[
+                    "Prospect-to-Lead Loss %",
+                    "Lead-to-Contract Loss %"
+                ],
+
+                var_name="Loss Stage",
+
+                value_name="Loss %"
+            )
+
+            fig_leakage = px.bar(
+                leakage_melted,
+
+                x="Channel",
+
+                y="Loss %",
+
+                color="Loss Stage",
+
+                barmode="group",
+
+                title="Conversion Leakage by Channel"
+            )
+
+            st.plotly_chart(
+                fig_leakage,
+                use_container_width=True
+            )
+
+            conversion_summary = channel_funnel.copy()
+
+            conversion_summary["Overall Conversion %"] = (
+                conversion_summary["Contracts"]
+                /
+                conversion_summary["Prospects"]
+            ) * 100
+
+            best_conversion = (
+                conversion_summary.loc[
+                    conversion_summary[
+                        "Overall Conversion %"
+                    ].idxmax(),
+                    "Channel"
+                ]
+            )
+
+            worst_conversion = (
+                conversion_summary.loc[
+                    conversion_summary[
+                        "Overall Conversion %"
+                    ].idxmin(),
+                    "Channel"
+                ]
+            )
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+
+                st.success(
+                    f"🏆 Best Conversion Channel: {best_conversion}"
+                )
+
+            with col_b:
+
+                st.error(
+                    f"⚠️ Lowest Conversion Channel: {worst_conversion}"
+                )
+            st.info("""
+            Channel Funnel Interpretation
+
+            • High Prospect-to-Lead Loss = Poor lead generation quality.
+
+            • High Lead-to-Contract Loss = Sales conversion issue.
+
+            • Low loss percentages indicate an efficient channel.
+
+            • Compare channels to identify where prospects are dropping out of the journey.
+            """)
+
+
             # ---------------- SMART RECOMMENDATIONS ---------------- #
 
             st.subheader("AI-Based Marketing Recommendations")
@@ -1272,7 +1673,442 @@ if uploaded_file is not None:
 
             for rec in recommendations:
                 st.info(rec)
-        
+
+        # =====================================================
+        # BUDGET & ANALYTICS ANALYTICS TAB
+        # =====================================================
+        with budget_tab:
+            st.header("Budget Allocation & Planning")
+
+            # =====================================================
+            # BUDGET KPIs
+            # =====================================================
+
+            total_budget = filtered_df["Budget Allocation"].sum()
+
+            actual_spend = filtered_df["Amount Spent"].sum()
+
+            budget_variance = (
+                (
+                    actual_spend - total_budget
+                )
+                /
+                total_budget
+            ) * 100 if total_budget > 0 else 0
+
+            budget_utilization = (
+                actual_spend
+                /
+                total_budget
+            ) * 100 if total_budget > 0 else 0
+
+            b1, b2, b3, b4 = st.columns(4)
+
+            with b1:
+                st.metric(
+                    "Budget Allocated",
+                    f"AED {total_budget:,.0f}"
+                )
+
+            with b2:
+                st.metric(
+                    "Actual Spend",
+                    f"AED {actual_spend:,.0f}"
+                )
+
+            with b3:
+                st.metric(
+                    "Budget Variance %",
+                    f"{budget_variance:.1f}%"
+                )
+
+            with b4:
+                st.metric(
+                    "Budget Utilization %",
+                    f"{budget_utilization:.1f}%"
+                )
+
+            st.subheader("Budget vs Actual Spend by Channel")
+
+            budget_channel = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Budget Allocation":"sum",
+                    "Amount Spent":"sum"
+                })
+                .reset_index()
+            )
+
+            budget_melt = budget_channel.melt(
+                id_vars="Channel",
+                value_vars=[
+                    "Budget Allocation",
+                    "Amount Spent"
+                ],
+                var_name="Metric",
+                value_name="Amount"
+            )
+
+            fig_budget_actual = px.bar(
+                budget_melt,
+                x="Channel",
+                y="Amount",
+                color="Metric",
+                barmode="group",
+                title="Budget vs Actual Spend"
+            )
+
+            st.plotly_chart(
+                fig_budget_actual,
+                use_container_width=True
+            )
+
+            st.subheader("Budget Variance by Channel")
+
+            variance_df = budget_channel.copy()
+
+            variance_df["Variance %"] = (
+                (
+                    variance_df["Amount Spent"]
+                    -
+                    variance_df["Budget Allocation"]
+                )
+                /
+                variance_df["Budget Allocation"]
+            ) * 100
+
+            fig_variance = px.bar(
+                variance_df,
+                x="Channel",
+                y="Variance %",
+                color="Variance %",
+                title="Budget Variance (%)"
+            )
+
+            st.plotly_chart(
+                fig_variance,
+                use_container_width=True
+            )
+
+            st.subheader("Budget Utilization by Channel")
+
+            utilization_df = budget_channel.copy()
+
+            utilization_df["Utilization %"] = (
+                utilization_df["Amount Spent"]
+                /
+                utilization_df["Budget Allocation"]
+            ) * 100
+
+            fig_utilization = px.bar(
+                utilization_df,
+                x="Channel",
+                y="Utilization %",
+                color="Utilization %",
+                title="Budget Utilization (%)"
+            )
+
+            st.plotly_chart(
+                fig_utilization,
+                use_container_width=True
+            )
+
+            st.subheader("Monthly Budget Tracking")
+            budget_monthly = (
+                filtered_df.groupby(
+                    ["Year","Month"]
+                )
+                .agg({
+                    "Budget Allocation":"sum",
+                    "Amount Spent":"sum"
+                })
+                .reset_index()
+            )
+
+            budget_monthly["Period"] = (
+                budget_monthly["Month"]
+                +
+                " "
+                +
+                budget_monthly["Year"].astype(str)
+            )
+
+            budget_monthly_melt = budget_monthly.melt(
+                id_vars="Period",
+                value_vars=[
+                    "Budget Allocation",
+                    "Amount Spent"
+                ],
+                var_name="Metric",
+                value_name="Amount"
+            )
+
+            fig_monthly_budget = px.line(
+                budget_monthly_melt,
+                x="Period",
+                y="Amount",
+                color="Metric",
+                markers=True,
+                title="Monthly Budget Tracking"
+            )
+
+            st.plotly_chart(
+                fig_monthly_budget,
+                use_container_width=True
+            )
+
+            st.subheader("Budget Recommendations")
+
+            recommendation_df = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Revenue Amount":"sum",
+                    "Amount Spent":"sum",
+                    "Target ROAS":"mean"
+                })
+                .reset_index()
+            )
+
+            recommendation_df["ROAS"] = (
+                recommendation_df["Revenue Amount"]
+                /
+                recommendation_df["Amount Spent"]
+            )
+
+            def recommend_budget(row):
+
+                if row["ROAS"] >= row["Target ROAS"] * 1.2:
+                    return "Increase Budget"
+
+                elif row["ROAS"] >= row["Target ROAS"]:
+                    return "Maintain Budget"
+
+                else:
+                    return "Reduce Budget"
+
+            recommendation_df["Recommendation"] = (
+                recommendation_df.apply(
+                    recommend_budget,
+                    axis=1
+                )
+            )
+
+            st.dataframe(
+                recommendation_df[
+                    [
+                        "Channel",
+                        "ROAS",
+                        "Target ROAS",
+                        "Recommendation"
+                    ]
+                ],
+                use_container_width=True
+            )
+
+        # =====================================================
+        # FORECAST & PROJECTION ANALYTICS TAB
+        # =====================================================
+
+        with forecast_tab:
+            st.header("Revenue Forecast & Projections")
+
+            forecast_df = (
+                df.groupby(
+                    ["Year", "Month"]
+                )["Revenue Amount"]
+                .sum()
+                .reset_index()
+            )
+
+            month_map = {
+                "January":1,
+                "February":2,
+                "March":3,
+                "April":4,
+                "May":5,
+                "June":6,
+                "July":7,
+                "August":8,
+                "September":9,
+                "October":10,
+                "November":11,
+                "December":12
+            }
+            forecast_df["Month_Number"] = (
+                forecast_df["Month"]
+                .map(month_map)
+            )
+
+            forecast_df = (
+                forecast_df
+                .sort_values(
+                    ["Year","Month_Number"]
+                )
+                .reset_index(drop=True)
+            )
+
+            latest_year = int(forecast_df.iloc[-1]["Year"])
+            latest_month_num = int(forecast_df.iloc[-1]["Month_Number"])
+
+            forecast_df["Time_Index"] = (
+                range(len(forecast_df))
+            )
+
+            X = forecast_df[["Time_Index"]]
+
+            y = forecast_df["Revenue Amount"]
+
+            model = LinearRegression()
+
+            model.fit(X, y)
+
+            forecast_months = st.slider(
+                "Forecast Horizon (Months)",
+                min_value=1,
+                max_value=24,
+                value=6
+            )
+
+            future_periods = forecast_months
+
+            future_index = np.arange(
+                len(forecast_df),
+                len(forecast_df) + future_periods
+            ).reshape(-1,1)
+
+            future_predictions = model.predict(
+                future_index
+            )
+
+            future_months = []
+
+            current_year = latest_year
+            current_month = latest_month_num
+
+            for _ in range(future_periods):
+
+                current_month += 1
+
+                if current_month > 12:
+                    current_month = 1
+                    current_year += 1
+
+                future_months.append(
+                    datetime(
+                        current_year,
+                        current_month,
+                        1
+                    ).strftime("%B %Y")
+                )
+            st.write("Months:", len(future_months))
+            st.write("Predictions:", len(future_predictions))
+
+            forecast_table = pd.DataFrame({
+                "Forecast Period": future_months,
+                "Projected Revenue": future_predictions
+            })
+
+            st.subheader("Forecast Summary")
+
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.metric(
+                    "Next Month Revenue",
+                    f"AED {future_predictions[0]:,.0f}"
+                )
+
+            with c2:
+                st.metric(
+                    "Future Month Projection",
+                    f"AED {future_predictions.sum():,.0f}"
+                )
+
+            growth_rate = (
+                (
+                    future_predictions[0]
+                    -
+                    forecast_df["Revenue Amount"].iloc[-1]
+                )
+                /
+                forecast_df["Revenue Amount"].iloc[-1]
+            ) * 100
+
+            with c3:
+                st.metric(
+                    "Expected Growth %",
+                    f"{growth_rate:.1f}%"
+                )
+
+            # =====================================================
+            # FORECAST CHART
+            # =====================================================
+
+            historical_chart = forecast_df.copy()
+
+            historical_chart["Type"] = "Historical"
+
+            future_chart = pd.DataFrame({
+                "Time_Index": future_index.flatten(),
+                "Revenue Amount": future_predictions,
+                "Type": "Forecast"
+            })
+
+            combined_chart = pd.concat([
+                historical_chart[
+                    [
+                        "Time_Index",
+                        "Revenue Amount",
+                        "Type"
+                    ]
+                ],
+                future_chart
+            ])
+
+            fig_forecast = px.line(
+                combined_chart,
+                x="Time_Index",
+                y="Revenue Amount",
+                color="Type",
+                markers=True,
+                title="Historical Revenue vs Forecast Revenue"
+            )
+
+            st.plotly_chart(
+                fig_forecast,
+                use_container_width=True
+            )
+
+            # =====================================================
+            # FORECAST TABLE
+            # =====================================================
+
+            st.subheader("Projected Revenue Forecast")
+
+            st.dataframe(
+                forecast_table,
+                use_container_width=True
+            )
+
+            # =====================================================
+            # FORECAST INSIGHT
+            # =====================================================
+
+            if growth_rate > 0:
+
+                st.success(
+                    f"Forecast indicates approximately "
+                    f"{growth_rate:.1f}% growth "
+                    f"next period."
+                )
+
+            else:
+
+                st.warning(
+                    f"Forecast indicates approximately "
+                    f"{abs(growth_rate):.1f}% decline "
+                    f"next period."
+                )         
         # =====================================================
         # YTD ANALYTICS TAB
         # =====================================================
