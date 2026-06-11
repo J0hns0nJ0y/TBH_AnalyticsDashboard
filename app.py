@@ -346,6 +346,13 @@ if uploaded_file is not None:
 
         st.sidebar.header("Filters")
 
+        # YEAR FILTER
+        selected_years = st.sidebar.multiselect(
+            "Select Year",
+            options=sorted(df["Year"].unique()),
+            default=sorted(df["Year"].unique())
+        )
+
         # MONTH FILTER
         selected_months = st.sidebar.multiselect(
             "Select Month",
@@ -370,6 +377,7 @@ if uploaded_file is not None:
         # ---------------- FILTERED DATAFRAME ---------------- #
 
         filtered_df = df[
+            (df["Year"].isin(selected_years)) &
             (df["Month"].isin(selected_months)) &
             (df["Company"].isin(selected_companies)) &
             (df["Channel"].isin(selected_channels))
@@ -395,8 +403,22 @@ if uploaded_file is not None:
 
             total_contracts = filtered_df["Contracts"].sum()
 
-            overall_roas = (
-                total_revenue / total_spend
+            overall_roas = safe_divide(
+                total_revenue,
+                total_spend
+            )
+
+            # NEW KPI
+            total_leads = filtered_df["Leads"].sum()
+
+            avg_cpl = safe_divide(
+                total_spend,
+                total_leads
+            )
+
+            avg_cpa = safe_divide(
+                total_spend,
+                total_contracts
             )
 
             # BEST CHANNEL
@@ -452,14 +474,100 @@ if uploaded_file is not None:
             )
 
             col5.metric(
-                "Best Channel",
-                best_channel
+                "Average CPL (AED)",
+                f"{avg_cpl:,.0f}"
             )
 
             col6.metric(
-                "Best Company (by Revenue)",
-                best_company
+                "Average CPA (AED)",
+                f"{avg_cpa:,.0f}"
             )
+
+            # =====================================================
+            # EXECUTIVE PERFORMANCE ANALYTICS
+            # =====================================================
+
+            st.markdown("---")
+
+            st.header("Executive Performance Analytics")
+
+            # =====================================================
+            # ROAS TARGET GAUGE
+            # =====================================================
+
+            st.subheader("🇷🇴🇦🇸 🇹🇦🇷🇬🇪🇹 🇦🇨🇭🇮🇪🇻🇪🇲🇪🇳🇹 🇧🇾 🇨🇭🇦🇳🇳🇪🇱")
+
+            gauge_channels = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Revenue Amount": "sum",
+                    "Amount Spent": "sum",
+                    "Target ROAS": "mean"
+                })
+                .reset_index()
+            )
+
+            gauge_channels["ROAS AED"] = safe_divide(
+                gauge_channels["Revenue Amount"],
+                gauge_channels["Amount Spent"]
+            )
+
+            # 3 COLUMN LAYOUT
+            cols = st.columns(3)
+
+            for idx, (_, row) in enumerate(gauge_channels.iterrows()):
+
+                max_scale = max(
+                    row["Target ROAS"] * 2,
+                    row["ROAS AED"] * 1.5,
+                    5
+                )
+
+                fig_gauge = go.Figure(
+                    go.Indicator(
+                        mode="gauge+number",
+
+                        value=row["ROAS AED"],
+
+                        title={
+                            "text":
+                            f"<b>{row['Channel']}</b><br>Target: {row['Target ROAS']:.1f}"
+                        },
+
+                        gauge={
+                            "axis": {
+                                "range": [0, max_scale]
+                            },
+
+                            "threshold": {
+                                "line": {
+                                    "color": "red",
+                                    "width": 4
+                                },
+
+                                "value": row["Target ROAS"]
+                            }
+                        }
+                    )
+                )
+
+                fig_gauge.update_layout(
+                    height=320,
+                    margin=dict(
+                        l=10,
+                        r=10,
+                        t=50,
+                        b=10
+                    )
+                )
+
+                with cols[idx % 3]:
+
+                    st.plotly_chart(
+                        fig_gauge,
+                        use_container_width=True
+                    )
+
 
             # ---------------- SHOW DATA ---------------- #
 
@@ -564,6 +672,240 @@ if uploaded_file is not None:
                 fig4,
                 use_container_width=True
             )
+
+            # =====================================================
+            # MONTH ORDER
+            # =====================================================
+
+            month_order = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December"
+            ]
+
+            # =====================================================
+            # MOM ROAS TREND BY CHANNEL
+            # =====================================================
+
+            st.subheader("ROAS Trend by Channel")
+
+            roas_trend = (
+                filtered_df.groupby(
+                    ["Month", "Channel"]
+                )
+                .agg({
+                    "Revenue Amount":"sum",
+                    "Amount Spent":"sum"
+                })
+                .reset_index()
+            )
+
+            roas_trend["ROAS AED"] = safe_divide(
+                roas_trend["Revenue Amount"],
+                roas_trend["Amount Spent"]
+            )
+
+            roas_trend["Month"] = pd.Categorical(
+                roas_trend["Month"],
+                categories=month_order,
+                ordered=True
+            )
+
+            roas_trend = roas_trend.sort_values("Month")
+
+            fig_roas_trend = px.line(
+                roas_trend,
+                x="Month",
+                y="ROAS AED",
+                color="Channel",
+                markers=True,
+                title="Month-over-Month ROAS by Channel"
+            )
+
+            st.plotly_chart(
+                fig_roas_trend,
+                use_container_width=True
+            )
+
+            # =====================================================
+            # MOM SPEND TREND BY CHANNEL
+            # =====================================================
+
+            st.subheader("Spend Trend by Channel")
+
+            spend_trend = (
+                filtered_df.groupby(
+                    ["Month", "Channel"]
+                )["Amount Spent"]
+                .sum()
+                .reset_index()
+            )
+
+            spend_trend["Month"] = pd.Categorical(
+                spend_trend["Month"],
+                categories=month_order,
+                ordered=True
+            )
+
+            spend_trend = spend_trend.sort_values("Month")
+
+            fig_spend_trend = px.line(
+                spend_trend,
+                x="Month",
+                y="Amount Spent",
+                color="Channel",
+                markers=True,
+                title="Month-over-Month Spend by Channel"
+            )
+
+            st.plotly_chart(
+                fig_spend_trend,
+                use_container_width=True
+            )
+
+
+            # =====================================================
+            # LEAD QUALITY ANALYSIS
+            # =====================================================
+
+            st.header("Lead Quality Analytics")
+
+            # =====================================================
+            # LEAD QUALITY VS CLOSE RATE
+            # =====================================================
+
+            lead_quality_chart = (
+                filtered_df.groupby("Channel")
+                .agg({
+                    "Lead Quality %":"mean",
+                    "Close Rate %":"mean",
+                    "Revenue Amount":"sum"
+                })
+                .reset_index()
+            )
+
+            fig_lead_quality = px.scatter(
+                lead_quality_chart,
+
+                x="Lead Quality %",
+                y="Close Rate %",
+
+                size="Revenue Amount",
+
+                color="Channel",
+
+                text="Channel",
+
+                title="Lead Quality vs Close Rate by Channel"
+            )
+
+            fig_lead_quality.update_traces(
+                textposition="top center"
+            )
+
+            st.plotly_chart(
+                fig_lead_quality,
+                use_container_width=True
+            )
+
+            st.info("""
+            Interpretation:
+
+            • Top Right = Excellent Channels
+
+            • Bottom Right = Good Leads but Poor Sales Conversion
+
+            • Top Left = Poor Lead Quality but Strong Sales Team
+
+            • Bottom Left = Underperforming Channels
+            """)
+
+            # =====================================================
+            # LEAD QUALITY RANKING
+            # =====================================================
+
+            lead_quality_rank = (
+                filtered_df.groupby("Channel")
+                ["Lead Quality %"]
+                .mean()
+                .reset_index()
+            )
+
+            lead_quality_rank = (
+                lead_quality_rank
+                .sort_values(
+                    "Lead Quality %",
+                    ascending=False
+                )
+            )
+
+            fig_quality_rank = px.bar(
+                lead_quality_rank,
+
+                x="Channel",
+
+                y="Lead Quality %",
+
+                color="Lead Quality %",
+
+                text_auto=".1f",
+
+                title="Average Lead Quality by Channel"
+            )
+
+            st.plotly_chart(
+                fig_quality_rank,
+                use_container_width=True
+            )
+
+            # =====================================================
+            # CLOSE RATE RANKING
+            # =====================================================
+
+            close_rate_rank = (
+                filtered_df.groupby("Channel")
+                ["Close Rate %"]
+                .mean()
+                .reset_index()
+            )
+
+            close_rate_rank = (
+                close_rate_rank
+                .sort_values(
+                    "Close Rate %",
+                    ascending=False
+                )
+            )
+
+            fig_close_rank = px.bar(
+                close_rate_rank,
+
+                x="Channel",
+
+                y="Close Rate %",
+
+                color="Close Rate %",
+
+                text_auto=".1f",
+
+                title="Average Close Rate by Channel"
+            )
+
+            st.plotly_chart(
+                fig_close_rank,
+                use_container_width=True
+            )
+
+
 
             # ---------------- ADVANCED BUSINESS INSIGHTS ---------------- #
 
