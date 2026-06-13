@@ -39,6 +39,16 @@ st.sidebar.image("tbhsidebar.png", width=120)
 
 st.title("Marketing Analytics Dashboard - ᴛʜᴇʙᴜᴢɪʜᴜʙ")
 
+st.info(
+    "📘 First time using the dashboard? "
+    "Review the Excel template structure and user guide before uploading your file."
+)
+
+st.link_button(
+    "Open User Guide",
+    "https://docs.google.com/document/d/1UpCMJNBtDmD3B0rOBUrQDmCdZEAIrXmYFvf6-PTUNnY/edit?usp=sharing"
+)
+
 # ---------------- FILE UPLOAD ---------------- #
 
 uploaded_file = st.file_uploader(
